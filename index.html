@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Virtual Presence - Camera Test</title>
+
+    <style>
+        body {
+            margin: 0;
+            background: #111;
+            color: white;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+        h1 {
+            margin: 20px;
+        }
+
+        video {
+            width: 80%;
+            max-width: 800px;
+            border: 3px solid white;
+            border-radius: 10px;
+            background: black;
+        }
+
+        button {
+            margin-top: 20px;
+            padding: 12px 25px;
+            font-size: 18px;
+            cursor: pointer;
+        }
+
+        #status {
+            margin: 20px;
+            font-size: 18px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Virtual Presence</h1>
+
+    <video id="video" autoplay playsinline></video>
+   
+    <video id="remoteVideo" autoplay playsinline></video>
+
+    <div>
+        <button onclick="startCamera()">Start Camera</button>
+    </div>
+
+    <div id="status">
+        Camera not started
+    </div>
+
+    <script src="https://10.186.92.163:3000/socket.io/socket.io.js"></script>
+
+<script>
+
+const socket = io("https://10.186.92.163:3000");    
+
+socket.emit("join-room", "test-room");
+
+console.log("🚪 Joined test-room");
+
+socket.on("connect", () => {
+    console.log("✅ Connected to signaling server:", socket.id);
+});
+
+var peerConnection = null;
+
+function createPeerConnection() {
+    peerConnection = new RTCPeerConnection({
+        iceServers: [
+            {
+                urls: "stun:stun.l.google.com:19302"
+            }
+        ]
+    });
+
+    console.log("✅ WebRTC peer connection created");
+
+    return peerConnection;
+}
+
+createPeerConnection();
+
+
+async function createOffer() {
+
+    const offer = await peerConnection.createOffer();
+
+    await peerConnection.setLocalDescription(offer);
+
+    console.log("✅ WebRTC offer created");
+
+    socket.emit("signal", {
+        roomId: "test-room",
+        data: {
+            type: "offer",
+            offer: offer
+        }
+    });
+
+    console.log("📤 WebRTC offer sent through signaling server");
+}
+
+
+socket.on("signal", async ({ from, data }) => {
+
+    console.log("📥 Signal received from:", from);
+    console.log("Signal data:", data);
+
+    if (data.type === "offer") {
+
+        await peerConnection.setRemoteDescription(
+            new RTCSessionDescription(data.offer)
+        );
+
+        console.log("✅ Remote offer received");
+
+        const answer = await peerConnection.createAnswer();
+
+        await peerConnection.setLocalDescription(answer);
+
+        console.log("✅ WebRTC answer created");
+
+        socket.emit("signal", {
+            roomId: "test-room",
+            data: {
+                type: "answer",
+                answer: answer
+            }
+        });
+
+        console.log("📤 WebRTC answer sent");
+    }
+
+    if (data.type === "answer") {
+
+        await peerConnection.setRemoteDescription(
+            new RTCSessionDescription(data.answer)
+        );
+
+        console.log("✅ Remote answer received");
+
+    }
+
+});
+
+peerConnection.ontrack = (event) => {
+
+    console.log("📺 Remote video received!");
+
+    document.getElementById("remoteVideo").srcObject = event.streams[0];
+
+};
+
+console.log("🔍 peerConnection before startCamera:", peerConnection);
+
+async function startCamera() {
+
+    const video = document.getElementById("video");
+    const status = document.getElementById("status");
+
+    try {
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true
+        });
+
+        video.srcObject = stream;
+
+        stream.getTracks().forEach(track => {
+            peerConnection.addTrack(track, stream);
+        });
+
+        console.log("✅ Camera tracks added to WebRTC");
+
+        await createOffer();
+
+        status.innerHTML =
+            "✅ Camera and microphone are working!";
+
+    } catch (error) {
+
+        console.error(error);
+
+        status.innerHTML =
+            "❌ Camera access failed: " + error.message;
+    }
+}
+
+</script>
+
+    
+
+</body>
+</html>
